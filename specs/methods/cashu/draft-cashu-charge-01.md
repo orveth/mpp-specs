@@ -124,8 +124,9 @@ informative:
 This document defines the "charge" intent for the "cashu" payment
 method within the Payment HTTP Authentication Scheme
 {{I-D.httpauth-payment}}. The server issues a Cashu payment request
-{{NUT-18}} as a challenge; the client presents a Cashu token that
-redeems to the requested amount as a credential, which the server
+{{NUT-18}} as a challenge; the client presents a Cashu token whose
+value, net of the mint's swap fee, redeems to the requested amount
+as a credential, which the server
 verifies and redeems by swapping {{NUT-03}} it at the issuing mint. This method
 relocates the challenge-and-token semantics of the existing Cashu
 HTTP 402 binding {{NUT-24}} into the standard
@@ -594,6 +595,19 @@ network swap in step 14, so a structurally invalid token never
 produces a mint round trip. The keyset resolution of step 11 MAY
 require fetching the mint's keysets {{NUT-02}} before the swap.
 
+These steps discharge the verification responsibilities the "charge"
+intent ({{I-D.payment-intent-charge}}) places on the server:
+challenge-match and freshness are steps 4–7; payment-proof
+verification is steps 8–14, where the swap itself is the proof of
+payment; the amount-match responsibility is step 12, read as the
+NET settled amount — the server nets exactly `amount` while the
+holder pre-funds the swap fee, so the presented total is
+`amount + expected_swap_fee` (see {{fees}}); and the recipient-match
+responsibility is satisfied implicitly, because redemption is the
+server swapping the presented token to itself at the mint, so there
+is no distinct recipient to compare — the `recipient` field is
+correspondingly omitted.
+
 ## Spending-Condition-Locked Tokens {#spending-conditions}
 
 The "cashu" charge accepts plain-secret BEARER proofs only. A
@@ -637,16 +651,21 @@ different challenge.
 
 ## Short Keyset Identifiers {#short-keyset}
 
-A proof carries a keyset id identifying the signing key. A v1
-keyset id is a short 8-byte (16 hex character) identifier; a v2
-keyset id is the full 33-byte identifier. When a presented proof
+A proof carries a keyset id identifying the signing key. A
+version-`00` keyset id is a short 8-byte (16 hex character)
+identifier; a version-`01` keyset id is the full 33-byte (66 hex
+character) identifier ({{NUT-02}}). When a presented proof
 uses a short keyset id, the server MUST resolve it to a full keyset
 by fetching the mint's keyset list {{NUT-02}} and matching, and
 MUST derive the keyset per {{NUT-02}}. A short id that matches no
 published keyset, or that is ambiguous across the mint's keysets,
-MUST be rejected as `verification-failed`. Resolution is required
-both to compute the swap fee ({{fees}}) and to construct correct
-swap outputs.
+MUST be rejected as `verification-failed`. A failure to FETCH the
+keyset list at all (a network error reaching the mint), as distinct
+from a short id that resolves but matches no or several keysets, is
+a `mint-unavailable` (HTTP 503) condition with the token not
+consumed (see {{errors}}), not a `verification-failed`. Resolution
+is required both to compute the swap fee ({{fees}}) and to construct
+correct swap outputs.
 
 # Settlement Procedure {#settlement}
 
@@ -866,6 +885,20 @@ Example error response body:
 ~~~
 
 # Security Considerations
+
+## Client-Side Verification {#security-client}
+
+Before presenting a token, a client MUST verify the challenge
+independently rather than trusting the server's `amount` and
+`currency` auth-params: it MUST decode `methodDetails.request`
+({{NUT-18}}) and confirm the amount and unit it encodes match the
+`amount` and `currency` fields, and MUST confirm
+`methodDetails.mints` contains a mint it trusts and can obtain a
+token from. A client that skips these checks can be induced to pay
+a different amount, in a different unit, or against an
+attacker-substituted mint set. These checks are stated normatively
+in the Request Schema and restated here as a security requirement,
+as the sibling method specifications do.
 
 ## Token Replay {#security-replay}
 
