@@ -143,14 +143,11 @@ unit, and acceptable mint set in the challenge, and the client
 returns a token the server redeems to settle.
 
 The "cashu" method is independent of what the mint's unit
-denominates. The unit is a label chosen by the service that issues
-the token: it MAY be a denomination of an external asset (for
-example, "sat") or a unit meaningful only within the issuing
-service. This document defines the generic Cashu charge exchange and
-treats the unit as an opaque identifier carried in the `currency`
-field; what a unit denominates, and any backing or redemption
-semantics, are defined by the issuing service and are out of scope
-here.
+denominates. The unit is a label chosen by the issuing service — it
+MAY denote an external asset (for example, "sat") or a unit
+meaningful only within that service. This document treats it as an
+opaque `currency` identifier; its backing and redemption semantics
+are out of scope here.
 
 The flow proceeds as follows:
 
@@ -210,6 +207,11 @@ Cashu Token
   single mint under a single unit, the mint's URL, and that unit.
   The authoritative value carried by the credential.
 
+Mint
+: The Cashu issuer that blind-signs proofs and swaps {{NUT-03}} them
+  under its keysets {{NUT-02}}. Each token names the single mint that
+  issued it.
+
 Payment Request
 : A Cashu payment request {{NUT-18}} (a `creqA...` string, or the
   `creqb1...` Bech32m form {{NUT-26}}) encoding the amount, unit,
@@ -255,14 +257,11 @@ The server verifies the token and redeems it by swapping
 ({{NUT-03}}) it at the issuing mint; a successful swap both proves
 the token unspent and transfers its value to the server.
 
-The "cashu" charge is exact-amount and makes no change: the server
-accepts only a token that, once swapped, nets it the requested
-amount exactly; it then redeems the whole token and keeps the
-resulting proofs. The holder pre-funds the swap fee, so the presented
-token's value is `amount + swap_fee` (see {{fees}}). A client holding
-a token larger than that value MUST split it locally at the mint
-before presenting (see {{settlement}}); the remainder is never seen
-by the server.
+The "cashu" charge is exact-amount: the server redeems the whole
+token and makes no change, so the holder pre-funds the swap fee and
+the presented value is `amount + swap_fee` (see {{fees}}). A holder
+of a larger token MUST split it locally first (see {{settlement}});
+the remainder is never seen by the server.
 
 ## Fees {#fees}
 
@@ -273,12 +272,10 @@ keyset(s), `swap_fee = ceil(sum(input_fee_ppk) / 1000)`, where
 proofs, so both holder and server compute the same value before the
 token is presented.
 
-The "cashu" charge is exact-amount and the server makes no change, so
-the holder pre-funds the fee: the presented token's total value MUST
-equal `amount + swap_fee`. The server swaps the whole token, the mint
-deducts `swap_fee`, and the server's outputs sum to exactly `amount`.
-For a zero-fee keyset this reduces to `presented == amount`. The
-server's exact-value check ({{verification}}, step 12) recomputes
+Because the charge is exact-amount with no change, the holder
+pre-funds the fee: the presented token's total value MUST equal
+`amount + swap_fee` (for a zero-fee keyset, `presented == amount`).
+The server's exact-value check ({{verification}}, step 12) recomputes
 `swap_fee` from the presented proofs and never trusts a
 client-supplied value.
 
@@ -306,15 +303,11 @@ auth-param in `WWW-Authenticate`, the credential token in
 `Authorization`, and the receipt token in
 `Payment-Receipt`.
 
-The `request` object is a JCS-canonical JSON object. The Cashu
-payment request (`methodDetails.request`) and the Cashu token
-(`payload.cashu_token`) are each carried as an opaque string value
-within that JSON. The `creqA...` (or
-`creqb1...` {{NUT-26}}) and `cashuB...` strings have their own
-internal encoding {{NUT-18}} {{NUT-00}}; that encoding is opaque to
-the framework and is never canonicalized by it. Conformance to the
-JCS requirement is a property of the enclosing JSON object, not of
-these embedded strings.
+The Cashu payment request (`methodDetails.request`) and the Cashu
+token (`payload.cashu_token`) are opaque string values within the
+JCS-canonical `request` object; their own internal encoding
+({{NUT-18}}, {{NUT-00}}) is never canonicalized — JCS conformance is
+a property of the enclosing object only.
 
 # Request Schema
 
@@ -385,13 +378,8 @@ request
 : REQUIRED. The Cashu payment request string ({{NUT-18}}, a
   `creqA...` value). Servers and clients SHOULD also accept the
   equivalent Bech32m encoding ({{NUT-26}}, a `creqb1...` value);
-  the two encodings are interchangeable and carry the same payment
-  parameters. The request is carried in its native encoded form
-  rather than as the decoded JSON it represents. The encoded string
-  is the canonical, self-contained artifact existing Cashu wallets
-  and libraries already produce and parse. It is also byte-identical
-  to the request used by the NUT-24 {{NUT-24}} binding, so a single
-  Cashu code path serves both. This field is authoritative; all payment parameters
+  the two encodings are interchangeable. This field is
+  authoritative; all payment parameters
   (amount, unit, acceptable mints, spending-condition kind,
   single-use flag, optional description) are derived from it. Its
   transport set MUST be empty, which {{NUT-18}} defines as in-band:
@@ -554,17 +542,13 @@ network swap in step 13, so a structurally invalid token never
 produces a mint round trip. The keyset resolution of step 11 MAY
 require fetching the mint's keysets {{NUT-02}} before the swap.
 
-These steps satisfy the verification responsibilities the "charge"
-intent ({{I-D.payment-intent-charge}}) places on the server.
-Challenge-match and freshness are steps 4–7, and payment-proof
-verification is steps 8–13, where the swap itself is the proof of
-payment. The amount-match responsibility is step 12, read as the
-NET settled amount: the server nets exactly `amount` while the
-holder pre-funds the swap fee, so the presented total is
-`amount + expected_swap_fee` (see {{fees}}). The recipient-match
-responsibility is satisfied implicitly: redemption is the server
-swapping the presented token to itself at the mint, so there is no
-distinct recipient to compare, and the `recipient` field is omitted.
+These steps satisfy the "charge" intent's verification
+responsibilities ({{I-D.payment-intent-charge}}): challenge-match and
+freshness in steps 4–7, payment-proof verification (the swap itself)
+in steps 8–13, and amount-match in step 12 (read as the NET settled
+amount, per {{fees}}). Recipient-match is implicit — redemption swaps
+the token to the server itself, so there is no distinct recipient and
+`recipient` is omitted.
 
 ## Spending-Condition-Locked Tokens {#spending-conditions}
 
@@ -604,11 +588,6 @@ does not depend on it: it comes from challenge binding (above)
 together with the proof-level single-use property of the redeemed
 token (see {{security-replay}}).
 
-Replay of the underlying token is independently prevented at the
-proof level: a token can be swapped at most once, after which its
-proofs are spent and the mint refuses any further swap (see
-{{security-replay}}).
-
 ## Short Keyset Identifiers {#short-keyset}
 
 A proof carries a keyset id identifying the signing key. A
@@ -640,12 +619,10 @@ settlement is final once the swap succeeds: the input proofs are
 spent and cannot be restored. The server makes no change and
 returns no proofs to the client.
 
-Because the "cashu" charge is exact-amount, a client holding a
-token larger than the value it must present MUST split it locally
-before presenting. The client swaps ({{NUT-03}}) its token at the
-mint into (a) a token worth exactly `amount + swap_fee`, which it
-presents, and (b) a remainder it keeps, generating the blinded
-outputs for both halves itself. This local split is itself a
+The client swaps ({{NUT-03}}) its larger token at the mint into (a)
+a token worth exactly `amount + swap_fee`, which it presents, and
+(b) a remainder it keeps, generating the blinded outputs for both
+halves itself. This local split is itself a
 fee-bearing swap: to end up holding a presentable token worth
 `amount + swap_fee` AND keep a remainder, the holder must spend
 inputs worth `amount + swap_fee + split_fee`, where `split_fee` is
@@ -854,9 +831,7 @@ independently rather than trusting the server's `amount` and
 `amount` and `currency` fields, and MUST confirm
 `methodDetails.mints` contains a mint it trusts and can obtain a
 token from. A client that skips these checks can be induced to pay
-a different amount, in a different unit, or against an
-attacker-substituted mint set. These checks are stated normatively
-in the Request Schema and repeated here as a security requirement.
+the wrong amount or unit, or to an attacker-substituted mint.
 
 ## Token Replay {#security-replay}
 
@@ -901,15 +876,11 @@ would needlessly reject valid tokens.
 
 ## Amount and Fee Determinism {#security-fees}
 
-The "cashu" charge is exact-amount. The server MUST verify that the
-token's total value equals `amount + expected_swap_fee` exactly
-(see {{fees}}), rejecting both over- and under-funded tokens, and
-MUST perform this check before the swap. The swap fee is
-deterministic (see {{fees}}), so the server recomputes it from the
-proofs it actually received rather than trusting any client-supplied
-value. Where the swap fee is large relative to `amount` the charge
-remains satisfiable but uneconomic; servers SHOULD price `amount`
-well above the swap fee of the mints they accept.
+The exact-amount check ({{verification}} step 12, see {{fees}}) is
+the server's guard against an over- or under-funded token, performed
+before the swap. Where the swap fee is large relative to `amount` the
+charge remains satisfiable but uneconomic; servers SHOULD price
+`amount` well above the swap fee of the mints they accept.
 
 ## Keyset Rotation and Expiry
 
