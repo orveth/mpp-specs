@@ -75,9 +75,9 @@ normative:
     date: 2024
 
 informative:
-  NUT-01:
-    title: "NUT-01: Mint public key exchange"
-    target: https://github.com/cashubtc/nuts/blob/main/01.md
+  NUT-06:
+    title: "NUT-06: Mint information"
+    target: https://github.com/cashubtc/nuts/blob/main/06.md
     author:
       - org: Cashu
     date: 2024
@@ -185,23 +185,11 @@ The flow proceeds as follows:
 
 ## Relationship to NUT-24 {#relationship-nut24}
 
-NUT-24 {{NUT-24}} is the existing Cashu binding of HTTP 402
-"Payment Required". In NUT-24, a server returns HTTP 402 with an
-`X-Cashu` header carrying a NUT-18 {{NUT-18}} `creqA` payment
-request restricted to the fields `{a, u, m, nut10}` with an empty
-transport; the client retries with a `cashuB` token in the
-`X-Cashu` header; a bad mint, unit, or amount yields HTTP 400.
-
-This document is the standards-aligned sibling of that binding. It
-relocates the same `creqA`-challenge and `cashuB`-credential
-semantics into the standard `Authorization`/`WWW-Authenticate`
-authentication framework {{I-D.httpauth-payment}}. In place of
-NUT-24's flat 400, it returns a 402 carrying a fresh
-`WWW-Authenticate: Payment` re-challenge. The embedded `creqA` reuses
-NUT-24's challenge field subset `{a, u, m, nut10}` (amount, unit,
-mints, and spending-condition kind), so a single Cashu code path
-can serve both bindings: the wire envelope differs, the payment
-request and token do not.
+NUT-24 {{NUT-24}} binds the same NUT-18 {{NUT-18}} payment request to
+HTTP 402 over an `X-Cashu` header; this method binds it over the
+standard `Authorization`/`WWW-Authenticate` framework instead. The
+embedded `creqA` is byte-identical, so one Cashu code path can serve
+both.
 
 ## Relationship to the Charge Intent
 
@@ -247,11 +235,9 @@ DLEQ Proof
   {{security-dleq}}).
 
 Swap Fee
-: The NUT-03 input fee a swap deducts from the input proofs,
-  `swap_fee = ceil(sum(input_fee_ppk over input proofs) / 1000)`,
-  where each keyset's `input_fee_ppk` is published per {{NUT-02}}.
-  Deterministic from the input proofs' keysets, so it can be
-  computed offline before a token is presented.
+: The NUT-03 input fee a swap deducts from the input proofs (see
+  {{fees}}). Deterministic from the input proofs' keysets, so it can
+  be computed offline before a token is presented.
 
 # Intent Identifier
 
@@ -272,12 +258,11 @@ the token unspent and transfers its value to the server.
 The "cashu" charge is exact-amount and makes no change: the server
 accepts only a token that, once swapped, nets it the requested
 amount exactly; it then redeems the whole token and keeps the
-resulting proofs. Where the token's keyset(s) charge
-a NUT-03 input fee, the holder pre-funds that fee in the presented
-token (see {{fees}}); for fee-free keysets the presented value
-equals the requested amount. A client holding a token larger than
-that value MUST split it locally at the mint before presenting (see
-{{settlement}}); the remainder is never seen by the server.
+resulting proofs. The holder pre-funds the swap fee, so the presented
+token's value is `amount + swap_fee` (see {{fees}}). A client holding
+a token larger than that value MUST split it locally at the mint
+before presenting (see {{settlement}}); the remainder is never seen
+by the server.
 
 ## Fees {#fees}
 
@@ -299,9 +284,7 @@ client-supplied value.
 
 Selecting proofs to total `amount + swap_fee` has a mild fixpoint (a
 proof added to cover the fee can raise the fee); standard fee-aware
-coin selection resolves it. Where `swap_fee` is large relative to
-`amount` the charge is uneconomic rather than impossible (see
-{{security-fees}}).
+coin selection resolves it.
 
 # Encoding Conventions {#encoding}
 
@@ -537,8 +520,9 @@ Upon receiving a request with a credential, the server MUST:
    past `expires` is a `payment-expired` condition (see {{errors}}).
 8. Verify the token's unit equals `currency`.
 9. Verify the token's mint is a member of `methodDetails.mints`.
-   Mint membership SHOULD be compared by mint identity key
-   {{NUT-01}} rather than by URL string.
+   Mint membership SHOULD be compared by the mint's public key (the
+   `pubkey` of `GET /v1/info` {{NUT-06}}) when present, falling back
+   to the canonicalized mint URL when it is absent.
 10. Verify that no proof carries a NUT-10 {{NUT-10}} well-known
     (P2PK or HTLC) secret. This intent accepts plain-secret BEARER
     proofs only; a proof bound to a spending condition is rejected
@@ -558,10 +542,9 @@ Upon receiving a request with a credential, the server MUST:
     check that the input proofs were genuine, validly signed, and
     unspent. The server MUST verify the DLEQ proofs {{NUT-12}} on
     the blind signatures the swap returns and SHOULD reject a mint
-    that omits them (see {{security-dleq}}); it does not verify DLEQ
-    on the presented input proofs, since the swap already proves
-    their validity. A swap rejected because a proof is already
-    spent, or because a DLEQ check on the returned signatures fails,
+    that omits them (see {{security-dleq}}). A swap rejected because
+    a proof is already spent, or because a DLEQ check on the returned
+    signatures fails,
     is a `verification-failed` condition; a swap rejected because
     the keyset has retired or its `final_expiry` has passed is a
     `payment-expired` condition (see {{settlement}}, {{errors}}).
@@ -604,8 +587,12 @@ challenge `id` and verify, when a credential is presented, that
 The server SHOULD compute `id` as the HMAC-SHA256 binding defined
 by {{I-D.httpauth-payment}} so that binding is stateless;
 alternatively the server MAY store issued challenges and verify by
-lookup. The challenge MUST be constructed with all framework-
-REQUIRED auth-params — `id`, `realm`, `method`, `intent`, and
+lookup. Under stateless operation a presented credential MUST echo
+each challenge auth-param byte-for-byte as issued — in particular
+the `request` string, which the server MUST NOT decode and
+re-encode — or the `id` recomputation will not match. The challenge
+MUST be constructed with all framework-REQUIRED auth-params — `id`,
+`realm`, `method`, `intent`, and
 `request` — and the server SHOULD include `expires`; when the
 charge gates a request with a body the server SHOULD include
 `digest` and SHOULD include any `opaque` correlation data it needs
@@ -681,12 +668,13 @@ MUST therefore:
 - Serialize redemption per presented token and per `challenge.id`,
   so concurrent requests presenting the same token or hitting the
   same challenge cannot issue two swaps. The redemption and the
-  decision to return HTTP 200 MUST be a single atomic operation
-  (see {{security-replay}}).
+  decision to return HTTP 200 MUST be committed as a single durable
+  state transition (see {{security-replay}}).
 - Accept an `Idempotency-Key` request header per
   {{I-D.httpauth-payment}} for non-idempotent target methods and,
   on a retry bearing the same key, return the original response
-  without re-swapping.
+  without re-swapping; a key reused with a different token or
+  challenge MUST be rejected.
 
 If a swap request times out or returns 5xx with an indeterminate
 outcome, the server MUST NOT blindly re-swap. It MUST first query
@@ -917,18 +905,11 @@ The "cashu" charge is exact-amount. The server MUST verify that the
 token's total value equals `amount + expected_swap_fee` exactly
 (see {{fees}}), rejecting both over- and under-funded tokens, and
 MUST perform this check before the swap. The swap fee is
-deterministic: it is a pure function of the presented proofs'
-keysets and the per-keyset `input_fee_ppk` published by the mint
-{{NUT-02}}, so the holder computes the same `amount + swap_fee` the
-server will check, and the server recomputes the fee from the
-proofs it actually received rather than trusting any client-
-supplied value. Pre-funding the fee on the holder side keeps the
-whole-token redemption and the exact net `amount` mutually
-satisfiable, which a naive "present exactly `amount`" rule would
-not be at any keyset with `input_fee_ppk > 0`. Where the swap fee
-is large relative to `amount` the charge remains satisfiable but
-uneconomic; servers SHOULD price `amount` well above the swap fee
-of the mints they accept (see {{fees}}).
+deterministic (see {{fees}}), so the server recomputes it from the
+proofs it actually received rather than trusting any client-supplied
+value. Where the swap fee is large relative to `amount` the charge
+remains satisfiable but uneconomic; servers SHOULD price `amount`
+well above the swap fee of the mints they accept.
 
 ## Keyset Rotation and Expiry
 
@@ -948,10 +929,13 @@ proofs even when the input keyset is on the verge of retiring.
 The server trusts the mints it lists in `methodDetails.mints`: a
 listed mint custodies the value the server redeems and could,
 in principle, refuse to honor a swap or rotate its keyset early.
-Servers MUST choose the mint set and SHOULD identify mints by
-mint identity key {{NUT-01}} rather than by URL, so that a
-DNS or URL takeover cannot substitute an untrusted mint. Clients
-likewise rely on the listed mints to honor the tokens they hold.
+Servers MUST choose the mint set and SHOULD identify a mint by its
+public key (the `pubkey` of `GET /v1/info` {{NUT-06}}) when the mint
+publishes one, so that a DNS or URL takeover cannot substitute an
+untrusted mint; because that field is OPTIONAL, a server SHOULD pin
+each accepted mint's identity out of band rather than trust it on
+first contact. Clients likewise rely on the listed mints to honor
+the tokens they hold.
 
 ## Privacy
 
@@ -966,7 +950,9 @@ remaining balance. The server still observes that a redemption
 occurred — the blind signatures hide the link to issuance, not the
 redemption itself. Implementations MUST NOT log token secrets, and
 MUST use the token hash, not the token, as a receipt reference (see
-{{receipt}}).
+{{receipt}}). The stateless `id`-HMAC key is a server secret and
+MUST NOT be logged or shared; its compromise lets an attacker forge
+challenges and defeat challenge binding.
 
 ## Denial of Service {#security-dos}
 
