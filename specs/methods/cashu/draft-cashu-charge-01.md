@@ -121,10 +121,7 @@ method within the Payment HTTP Authentication Scheme
 {{NUT-18}} as a challenge; the client presents, as a credential, a
 Cashu token whose value, net of the mint's swap fee, settles to the
 requested amount. The server verifies the token and redeems it by
-swapping {{NUT-03}} it at the issuing mint. This method
-relocates the challenge-and-token semantics of the existing Cashu
-HTTP 402 binding {{NUT-24}} into the standard
-`Authorization`/`WWW-Authenticate` framework.
+swapping {{NUT-03}} it at the issuing mint.
 
 --- middle
 
