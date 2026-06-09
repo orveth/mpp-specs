@@ -118,10 +118,10 @@ informative:
 This document defines the "charge" intent for the "cashu" payment
 method within the Payment HTTP Authentication Scheme
 {{I-D.httpauth-payment}}. The server issues a Cashu payment request
-{{NUT-18}} as a challenge; the client presents a Cashu token whose
-value, net of the mint's swap fee, redeems to the requested amount
-as a credential, which the server
-verifies and redeems by swapping {{NUT-03}} it at the issuing mint. This method
+{{NUT-18}} as a challenge; the client presents, as a credential, a
+Cashu token whose value, net of the mint's swap fee, settles to the
+requested amount. The server verifies the token and redeems it by
+swapping {{NUT-03}} it at the issuing mint. This method
 relocates the challenge-and-token semantics of the existing Cashu
 HTTP 402 binding {{NUT-24}} into the standard
 `Authorization`/`WWW-Authenticate` framework.
@@ -198,9 +198,9 @@ transport; the client retries with a `cashuB` token in the
 This document is the standards-aligned sibling of that binding. It
 relocates the same `creqA`-challenge and `cashuB`-credential
 semantics into the standard `Authorization`/`WWW-Authenticate`
-authentication framework {{I-D.httpauth-payment}}, substituting a
-402 response carrying a fresh `WWW-Authenticate: Payment`
-re-challenge for NUT-24's flat 400. The embedded `creqA` reuses
+authentication framework {{I-D.httpauth-payment}}. In place of
+NUT-24's flat 400, it returns a 402 carrying a fresh
+`WWW-Authenticate: Payment` re-challenge. The embedded `creqA` reuses
 NUT-24's challenge field subset `{a, u, m, nut10}` (amount, unit,
 mints, and spending-condition kind), so a single Cashu code path
 can serve both bindings: the wire envelope differs, the payment
@@ -265,17 +265,17 @@ be lowercase.
 
 The "charge" intent represents a one-time payment gating access to
 a resource. The server advertises a Cashu payment request
-({{NUT-18}}) naming an exact amount and unit per request. The
-client presents a Cashu token whose value, after the swap fee the
-mint will deduct, settles to exactly that amount as the credential.
+({{NUT-18}}) naming an exact amount and unit per request. As the
+credential, the client presents a Cashu token whose value, after
+the swap fee the mint will deduct, settles to exactly that amount.
 The server verifies the token and redeems it by swapping
 ({{NUT-03}}) it at the issuing mint; a successful swap both proves
 the token unspent and transfers its value to the server.
 
 The "cashu" charge is exact-amount and makes no change: the server
-accepts only a token that, once swapped, nets
-the server the requested amount exactly, redeems the whole token,
-and keeps the resulting proofs. Where the token's keyset(s) charge
+accepts only a token that, once swapped, nets it the requested
+amount exactly; it then redeems the whole token and keeps the
+resulting proofs. Where the token's keyset(s) charge
 a NUT-03 input fee, the holder pre-funds that fee in the presented
 token (see {{fees}}); for fee-free keysets the presented value
 equals the requested amount. A client holding a token larger than
@@ -407,9 +407,9 @@ request
   equivalent Bech32m encoding ({{NUT-26}}, a `creqb1...` value);
   the two encodings are interchangeable and carry the same payment
   parameters. The request is carried in its native encoded form
-  rather than as the decoded JSON it represents: the encoded string
+  rather than as the decoded JSON it represents. The encoded string
   is the canonical, self-contained artifact existing Cashu wallets
-  and libraries already produce and parse, and it is byte-identical
+  and libraries already produce and parse. It is also byte-identical
   to the request used by the NUT-24 {{NUT-24}} binding, so a single
   Cashu code path serves both. This field is authoritative; all payment parameters
   (amount, unit, acceptable mints, spending-condition kind,
@@ -574,18 +574,17 @@ network swap in step 13, so a structurally invalid token never
 produces a mint round trip. The keyset resolution of step 11 MAY
 require fetching the mint's keysets {{NUT-02}} before the swap.
 
-These steps discharge the verification responsibilities the "charge"
-intent ({{I-D.payment-intent-charge}}) places on the server:
-challenge-match and freshness are steps 4–7; payment-proof
+These steps satisfy the verification responsibilities the "charge"
+intent ({{I-D.payment-intent-charge}}) places on the server.
+Challenge-match and freshness are steps 4–7, and payment-proof
 verification is steps 8–13, where the swap itself is the proof of
-payment; the amount-match responsibility is step 12, read as the
-NET settled amount — the server nets exactly `amount` while the
+payment. The amount-match responsibility is step 12, read as the
+NET settled amount: the server nets exactly `amount` while the
 holder pre-funds the swap fee, so the presented total is
-`amount + expected_swap_fee` (see {{fees}}); and the recipient-match
-responsibility is satisfied implicitly, because redemption is the
-server swapping the presented token to itself at the mint, so there
-is no distinct recipient to compare — the `recipient` field is
-correspondingly omitted.
+`amount + expected_swap_fee` (see {{fees}}). The recipient-match
+responsibility is satisfied implicitly: redemption is the server
+swapping the presented token to itself at the mint, so there is no
+distinct recipient to compare, and the `recipient` field is omitted.
 
 ## Spending-Condition-Locked Tokens {#spending-conditions}
 
@@ -624,9 +623,7 @@ token (see {{security-replay}}).
 Replay of the underlying token is independently prevented at the
 proof level: a token can be swapped at most once, after which its
 proofs are spent and the mint refuses any further swap (see
-{{security-replay}}). Challenge binding additionally prevents a
-token valid for one challenge from being presented against a
-different challenge.
+{{security-replay}}).
 
 ## Short Keyset Identifiers {#short-keyset}
 
@@ -874,8 +871,7 @@ independently rather than trusting the server's `amount` and
 token from. A client that skips these checks can be induced to pay
 a different amount, in a different unit, or against an
 attacker-substituted mint set. These checks are stated normatively
-in the Request Schema and restated here as a security requirement,
-as the sibling method specifications do.
+in the Request Schema and repeated here as a security requirement.
 
 ## Token Replay {#security-replay}
 
