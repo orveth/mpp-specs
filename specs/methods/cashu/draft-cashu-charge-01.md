@@ -74,12 +74,6 @@ normative:
     author:
       - org: Cashu
     date: 2024
-  NUT-26:
-    title: "NUT-26: Bech32m payment requests"
-    target: https://github.com/cashubtc/nuts/blob/main/26.md
-    author:
-      - org: Cashu
-    date: 2025
 
 informative:
   NUT-06:
@@ -125,9 +119,8 @@ informative:
 This document defines the "charge" intent for the "cashu" payment
 method within the Payment HTTP Authentication Scheme
 {{I-D.httpauth-payment}}. The server issues a Cashu payment request
-{{NUT-18}} as a challenge; the client presents, as a credential, a
-Cashu token whose value, net of the mint's swap fee, settles to the
-requested amount. The server verifies the token and redeems it by
+{{NUT-18}} as a challenge; the client presents a Cashu token as the
+credential. The server verifies the token and redeems it by
 swapping {{NUT-03}} it at the issuing mint.
 
 --- middle
@@ -148,13 +141,6 @@ that signed it. The "cashu" method gates a resource
 behind presentation of such a token: the server names an amount,
 unit, and acceptable mint set in the challenge, and the client
 returns a token the server redeems to settle.
-
-The "cashu" method is independent of what the mint's unit
-denominates. The unit is a label chosen by the issuing service — it
-MAY denote an external asset (for example, "sat") or a unit
-meaningful only within that service. This document treats it as an
-opaque `currency` identifier; its backing and redemption semantics
-are out of scope here.
 
 The flow proceeds as follows:
 
@@ -220,11 +206,11 @@ Mint
   issued it.
 
 Payment Request
-: A Cashu payment request {{NUT-18}} (a `creqA...` string, or the
-  `creqb1...` Bech32m form {{NUT-26}}) encoding the amount, unit,
-  acceptable mints, spending-condition kind, and single-use flag a
-  payer must satisfy. It is a self-contained, mint-agnostic request
-  artifact; all payment parameters are derived from it.
+: A Cashu payment request {{NUT-18}} (a `creqA...` string)
+  encoding the amount, unit, acceptable mints, spending-condition
+  kind, and single-use flag a payer must satisfy. It is a
+  self-contained, mint-agnostic request artifact; all payment
+  parameters are derived from it.
 
 Proof
 : A single unit of ecash: an `{amount, id, secret, C}` tuple
@@ -274,8 +260,8 @@ the remainder is never seen by the server.
 
 A NUT-03 swap deducts an input fee set by the input proofs'
 keyset(s): one term per input PROOF, each contributing its own
-keyset's `input_fee_ppk`, summed and divided once with a ceiling —
-`swap_fee = ceil(sum_over_proofs(input_fee_ppk) / 1000)` — where
+keyset's `input_fee_ppk`, summed and divided once with a ceiling:
+`swap_fee = ceil(sum_over_proofs(input_fee_ppk) / 1000)`, where
 `input_fee_ppk` is published per keyset in the mint's keyset list
 ({{NUT-02}}, {{NUT-03}}). Twelve proofs at 100 ppk owe 2, not 1:
 the sum runs over proofs, not distinct keysets. The fee is
@@ -285,7 +271,7 @@ compute the same value before the token is presented.
 Because the charge is exact-amount with no change, the holder
 pre-funds the fee: the presented token's total value MUST equal
 `amount + swap_fee` (for a zero-fee keyset, `presented == amount`).
-The server's exact-value check ({{verification}}, step 9) recomputes
+The server's exact-value check ({{verification}}, step 8) recomputes
 `swap_fee` from the presented proofs and never trusts a
 client-supplied value.
 
@@ -319,7 +305,7 @@ auth-param in `WWW-Authenticate`, the credential in
 The Cashu payment request (`methodDetails.paymentRequest`) and the Cashu
 token (`payload.cashu_token`) are opaque string values within the
 JCS-canonical `request` object; their own internal encoding
-({{NUT-18}}, {{NUT-00}}) is never canonicalized — JCS conformance is
+({{NUT-18}}, {{NUT-00}}) is never canonicalized; JCS conformance is
 a property of the enclosing object only.
 
 # Request Schema
@@ -333,7 +319,7 @@ included in that object:
 
 amount
 : REQUIRED. The amount charged, in the base units of the Cashu
-  unit, as a canonical decimal string (e.g., "100") — a positive
+  unit, as a canonical decimal string (e.g., "100"), a positive
   integer per the charge intent ({{I-D.payment-intent-charge}}).
   This is the amount the server nets after the swap; it MUST equal
   the `a` value encoded in `methodDetails.paymentRequest`,
@@ -384,9 +370,7 @@ the values encoded in the payment request.
 
 paymentRequest
 : REQUIRED. The Cashu payment request string ({{NUT-18}}, a
-  `creqA...` value). Servers and clients SHOULD also accept the
-  equivalent Bech32m encoding ({{NUT-26}}, a `creqb1...` value);
-  the two encodings are interchangeable. This field is
+  `creqA...` value). This field is
   authoritative; all payment parameters
   (amount, unit, accepted mints, spending-condition kind,
   single-use flag, optional description) are derived from it. The
@@ -481,36 +465,38 @@ Upon receiving a request with a credential, the server MUST:
 1. Decode the base64url credential and parse the JSON.
 2. Verify that `payload.cashu_token` is present, is a string, and
    decodes as a Cashu token ({{NUT-00}}). The token MUST be a
-   `cashuB...` (TokenV4) serialization; a `cashuA...` (TokenV3)
-   string MUST be rejected. Reject a token that does not parse or
-   carries zero proofs. Servers SHOULD reject a token carrying more
-   than a configured maximum number of proofs (see {{security-dos}}).
-3. Verify the token declares exactly one mint and one unit.
-   (TokenV4 makes both structural, so this fails only malformed or
-   hand-built tokens; the unit's semantic checks are steps 5
-   and 8.)
-4. Authenticate and validate the echoed challenge per
-   {{I-D.httpauth-payment}}: recover the challenge — under stateless
-   operation (RECOMMENDED) recompute the `id`-HMAC over the echoed
-   `credential.challenge` with the server key, or under stored
-   operation look it up by `credential.challenge.id` — and verify
-   its field consistency, body `digest` ({{RFC9530}}), and
+   `cashuB...` (TokenV4) serialization carrying at least one
+   proof; a `cashuA...` (TokenV3) string MUST be rejected, as MUST
+   a token that does not parse. A valid TokenV4 structurally
+   carries exactly one mint and one unit. Servers SHOULD reject a
+   token carrying more than a configured maximum number of proofs
+   (see {{security-dos}}).
+3. Authenticate and validate the echoed challenge per
+   {{I-D.httpauth-payment}}: recover the challenge (under
+   stateless operation, RECOMMENDED, recompute the `id`-HMAC over
+   the echoed `credential.challenge` with the server key; under
+   stored operation, look it up by `credential.challenge.id`) and
+   verify its field consistency, body `digest` ({{RFC9530}}), and
    `expires` freshness. A
    tampered or inconsistent challenge MUST be rejected as
    `invalid-challenge`; a `credential.challenge.expires` in the past
    is a `payment-expired` condition (see {{errors}}). Because a
    Cashu `creqA` carries no expiry of its own, the `expires`
    auth-param is the sole challenge-expiry signal.
-5. Verify the token's unit equals `currency`.
-6. Verify the token's mint is a member of the payment request's
+4. Verify the token's unit equals `currency`.
+5. Verify the token's mint is a member of the payment request's
    mint set (`m`), comparing by canonicalized mint URL (see
    {{mint-trust}}). A token whose mint is not a member is rejected
    as `verification-failed`.
-7. Verify that no proof carries a NUT-10 {{NUT-10}} well-known
+6. Verify that no proof carries a NUT-10 {{NUT-10}} well-known
    (P2PK or HTLC) secret. This intent accepts plain-secret BEARER
    proofs only; a proof bound to a spending condition is rejected
-   as `verification-failed` (see {{spending-conditions}}).
-8. Resolve every proof's keyset id against the mint's published
+   as `verification-failed`, because the server cannot produce the
+   witness such a proof requires and its swap would otherwise fail
+   undiagnosably. The challenge's embedded payment request promises
+   this in advance: its `nut10` field is absent (see Method
+   Details).
+7. Resolve every proof's keyset id against the mint's published
    keysets {{NUT-02}}. When a proof uses a short keyset id, the
    server MUST resolve it to the full keyset via the mint's fetched
    keyset list and MUST reject a short id that is ambiguous or does
@@ -519,31 +505,30 @@ Upon receiving a request with a credential, the server MUST:
    client-supplied data, the keyset is the authority; a proof whose
    keyset belongs to a different unit is rejected as
    `verification-failed`.
-9. Compute `expected_swap_fee` over the resolved keyset(s) of the
+8. Compute `expected_swap_fee` over the resolved keyset(s) of the
    presented proofs ({{fees}}) and verify the token's total value
    equals `amount + expected_swap_fee` EXACTLY. A token worth more
    OR less MUST be rejected; the server makes no change.
-10. Swap ({{NUT-03}}) the whole token at the matched mint's
-    configured URL (the mint-set entry matched in step 6),
-    never a URL carried in the token (see {{settlement}}). A
-    successful swap is the redemption step and is the authoritative
-    check that the input proofs were genuine, validly signed, and
-    unspent. The server SHOULD verify the DLEQ proofs {{NUT-12}}
-    on the blind signatures the swap returns; a failed or missing
-    DLEQ proof after a successful swap is a mint-trust incident,
-    not a payment failure (see {{security-dleq}}). A swap rejected
-    because a proof is already spent is a `verification-failed`
-    condition; a swap rejected because the keyset has retired or
-    its `final_expiry` has passed is a `payment-expired` condition;
-    a swap rejected for any other reason is a `verification-failed`
-    condition — the token was not redeemed
-    (see {{settlement}}, {{errors}}).
+9. Swap ({{NUT-03}}) the whole token at the configured URL of the
+   mint-set entry matched in step 5 (see {{settlement}}). A
+   successful swap is the redemption step and is the authoritative
+   check that the input proofs were genuine, validly signed, and
+   unspent. The server SHOULD verify the DLEQ proofs {{NUT-12}}
+   on the blind signatures the swap returns; a failed or missing
+   DLEQ proof after a successful swap is a mint-trust incident,
+   not a payment failure (see {{security-dleq}}). A swap rejected
+   because a proof is already spent is a `verification-failed`
+   condition; a swap rejected because the keyset has retired or
+   its `final_expiry` has passed is a `payment-expired` condition;
+   a swap rejected for any other reason is a `verification-failed`
+   condition: the token was not redeemed
+   (see {{settlement}}, {{errors}}).
 
-Steps 5 through 9 are structural and MUST be performed before the
-network swap in step 10, so a structurally invalid token never
-reaches the swap. The keyset resolution of step 8 MAY require
+Steps 4 through 8 are structural and MUST be performed before the
+network swap in step 9, so a structurally invalid token never
+reaches the swap. The keyset resolution of step 7 MAY require
 fetching the mint's keysets {{NUT-02}} first. The expected values
-these steps check — `currency`, the mint set, `amount` — are
+these steps check (`currency`, the mint set, `amount`) are
 derived from the authenticated challenge's embedded payment
 request, the authoritative artifact (see Method Details); the
 top-level auth-params were already required to match it at
@@ -551,34 +536,11 @@ challenge construction.
 
 These steps satisfy the "charge" intent's verification
 responsibilities ({{I-D.payment-intent-charge}}): challenge-match and
-freshness in step 4, payment-proof verification (the swap itself)
-in steps 5–10, and amount-match in step 9 (read as the NET settled
-amount, per {{fees}}). Recipient-match is implicit — redemption swaps
+freshness in step 3, payment-proof verification (the swap itself)
+in steps 4-9, and amount-match in step 8 (read as the NET settled
+amount, per {{fees}}). Recipient-match is implicit: redemption swaps
 the token to the server itself, so there is no distinct recipient and
 `recipient` is omitted.
-
-## Spending-Condition-Locked Tokens {#spending-conditions}
-
-This profile accepts plain-secret BEARER proofs only. The
-challenge's embedded payment request MUST set `nut10` to `None`
-(absent),
-and a presented proof carrying a NUT-10 {{NUT-10}} well-known
-secret (a P2PK or HTLC lock) is rejected before the swap (step 7)
-as `verification-failed`: the server cannot produce the witness
-such a proof requires, so its swap would otherwise fail
-undiagnosably.
-
-This is a deliberate v1 boundary, not a permanent one. Locking the
-token to the server's key (P2PK) is the natural extension — it
-would let a server verify a payment offline (valid DLEQ +
-locked-to-itself + locally deduplicated, no swap) and make an
-intercepted token unspendable by a thief (see
-{{security-transport}}). That changes the verification model
-(server keys, witness checks, local double-spend tracking), so it
-is left to a future profile. Requiring `nut10` absent here is what
-makes that addition safe: a bearer-profile client already rejects
-any nut10-carrying challenge, so a later P2PK profile degrades
-closed rather than silently misbehaving.
 
 ## Challenge Binding
 
@@ -590,7 +552,7 @@ The server SHOULD compute `id` as the HMAC-SHA256 binding defined
 by {{I-D.httpauth-payment}} so that binding is stateless;
 alternatively the server MAY store issued challenges and verify by
 lookup. Under stateless operation a presented credential MUST echo
-each challenge auth-param byte-for-byte as issued — in particular
+each challenge auth-param byte-for-byte as issued, in particular
 the `request` string, used byte-as-issued (a decode/re-encode
 cycle changes the bytes and the recomputation fails). The
 challenge carries the framework-REQUIRED auth-params (`id`,
@@ -614,7 +576,7 @@ token (see {{security-replay}}).
 
 When a presented proof uses a short (version-`00`) keyset id, the
 server MUST resolve it to the full keyset against the mint's
-published keyset list ({{NUT-02}}) — resolution is required to
+published keyset list ({{NUT-02}}); resolution is required to
 compute the swap fee ({{fees}}) and construct correct swap outputs.
 A short id that resolves to no keyset, or is ambiguous across the
 mint's keysets, MUST be rejected as `verification-failed`. A
@@ -639,7 +601,7 @@ returns no proofs to the client.
 A successful swap is destructive: the input proofs are consumed
 whether or not the server retains the result. The server MUST be
 able to reconstruct its swap outputs if it crashes between sending
-the swap and durably storing the returned signatures — either by
+the swap and durably storing the returned signatures: either by
 persisting the blinded output secrets before sending the swap, or
 by deriving them deterministically ({{NUT-13}}) and recovering the
 mint's response via restore ({{NUT-09}}, which covers interrupted
@@ -650,29 +612,19 @@ can recover the outputs.
 A swap whose request was transmitted but whose result was not
 received leaves consumption unknown. The server MUST resolve such
 an outcome before honoring any further presentation of the same
-challenge: restore its own swap outputs ({{NUT-09}}) — always
-possible under the reconstruction requirement above, and if the
-mint returns signatures the original swap succeeded and the
-payment is complete — or check the input proofs' spent state
+challenge: restore its own swap outputs ({{NUT-09}}), which the
+reconstruction requirement above makes always possible (if the
+mint returns signatures, the original swap succeeded and the
+payment is complete), or check the input proofs' spent state
 ({{NUT-07}}). Until resolved, the server answers
 `mint-unavailable` ({{errors}}).
 
-The client swaps ({{NUT-03}}) its larger token at the mint into (a)
-a token worth exactly `amount + swap_fee`, which it presents, and
-(b) a remainder it keeps, generating the blinded outputs for both
-halves itself. This local split is itself a
-fee-bearing swap: to end up holding a presentable token worth
-`amount + swap_fee` AND keep a remainder, the holder must spend
-inputs worth at least `amount + swap_fee + split_fee`, where
-`split_fee` is the fee of the local split swap computed over its
-own input proofs ({{fees}}). The presented half consists of the
-split's outputs, blinded against the mint's currently ACTIVE
-keyset — so the `input_fee_ppk` that prices `swap_fee` is the
-active keyset's, which MAY differ from that of the proofs the
-holder spent. Neither the mint nor the server learns the remainder's
-secrets. This local split is the client's responsibility and
-happens before the `Authorization` request; the server never
-performs it.
+The client presents a token worth exactly `amount + swap_fee`. If
+it does not already hold matching denominations, it first swaps
+({{NUT-03}}) at the mint to produce them; the remainder of that
+local split stays with the client, and neither the mint nor the
+server learns the remainder's secrets. The split happens before
+the `Authorization` request; the server never performs it.
 
 ## Consume-Once and Resource Delivery
 
@@ -680,7 +632,7 @@ The server MUST treat the redemption (the swap) and the decision to
 return HTTP 200 as a single operation: a challenge whose token has
 been redeemed MUST NOT be accepted again, even if resource delivery
 subsequently fails. A server using stored challenges records
-consumption only upon — and atomically with — swap success; a
+consumption only upon, and atomically with, swap success; a
 challenge whose swap never succeeded remains presentable
 (`mint-unavailable`, {{errors}}). Once the swap succeeds the
 payment is complete:
@@ -695,7 +647,7 @@ redeemed token cannot be refunded by the server.
 
 The same loss mode applies when a success response is lost in
 transit: a later re-presentation of the same credential is a new
-request against an already-consumed challenge and fails — under
+request against an already-consumed challenge and fails: under
 stateless operation at the swap, as a spent token
 (`verification-failed`); under stored operation at the challenge
 lookup (`invalid-challenge`, {{errors}}). The protocol provides
@@ -772,7 +724,7 @@ The server SHOULD include a response body conforming to RFC 9457
 {{RFC9457}} Problem Details, with
 `Content-Type: application/problem+json`.
 
-A malformed REQUEST — as opposed to a failed payment — follows the
+A malformed REQUEST, as opposed to a failed payment, follows the
 framework's status handling rather than returning 402: a credential
 naming an unsupported method yields `method-unsupported` (HTTP 400),
 and a request bearing more than one `Authorization: Payment`
@@ -820,27 +772,26 @@ https://paymentauth.org/problems/payment-expired
 
 https://paymentauth.org/problems/cashu/amount-mismatch
 : HTTP 402. The token's total value does not equal
-  `amount + swap_fee` (see {{fees}}) — over- or under-funded; the
-  server makes no change. A fresh challenge MUST be included in
+  `amount + swap_fee` (see {{fees}}), whether over- or
+  under-funded; the server makes no change. A fresh challenge MUST be included in
   `WWW-Authenticate`. This method-specific type covers both
   directions; the framework's `payment-insufficient` names only
   underpayment and is not used by this method.
 
 https://paymentauth.org/problems/verification-failed
 : HTTP 402. The token failed a non-amount, non-expiry verification
-  check: its unit does not equal `currency`, its proofs reference
-  more than one mint or unit, its mint is not in the payment
-  request's mint set, a proof carries a NUT-10 {{NUT-10}}
-  spending condition, a proof uses an unresolvable or ambiguous
-  short keyset id, a resolved keyset's unit differs from
-  `currency`, or the mint rejected the swap — because a proof was
-  already spent, or for any reason other than keyset retirement or
-  expiry (verification step 10). A fresh challenge MUST be
-  included in `WWW-Authenticate`.
+  check: its unit does not equal `currency`, its mint is not in
+  the payment request's mint set, a proof carries a NUT-10
+  {{NUT-10}} spending condition, a proof uses an unresolvable or
+  ambiguous short keyset id, a resolved keyset's unit differs from
+  `currency`, or the mint rejected the swap, whether because a
+  proof was already spent or for any reason other than keyset
+  retirement or expiry (verification step 9). A fresh challenge
+  MUST be included in `WWW-Authenticate`.
 
 https://paymentauth.org/problems/cashu/mint-unavailable
 : HTTP 503. The mint could not be reached, or the swap was sent
-  but its outcome is unknown — an infrastructure failure, not a
+  but its outcome is unknown: an infrastructure failure, not a
   payment-verification outcome. The server SHOULD include a
   `Retry-After` header. If the swap request was never transmitted
   (DNS, connect, or TLS failure), the token is NOT consumed and
@@ -874,13 +825,13 @@ Example error response body:
 ## Client-Side Verification {#security-client}
 
 A client that skips the independent checks required by the
-`paymentRequest` definition (Method Details) — decoding the
-payment request and confirming its amount, unit, and mint set —
+`paymentRequest` definition (Method Details), decoding the
+payment request and confirming its amount, unit, and mint set,
 can be induced to pay the wrong amount or unit, or to pay toward
 an attacker-substituted mint.
 
-After an outcome that never resolved — a timeout, connection
-loss, or 5xx after a credential was sent — a client can settle
+After an outcome that never resolved (a timeout, connection
+loss, or 5xx after a credential was sent), a client can settle
 its token's fate with a proof-state check at the mint
 ({{NUT-07}}): proofs SPENT mean the server redeemed the token
 (the payment happened; whether the resource arrived is the loss
@@ -930,33 +881,19 @@ server only against a mint its operator already chose to trust;
 operators who rely on it SHOULD select mints that support NUT-12
 (discoverable via the mint's info endpoint {{NUT-06}}).
 
-The server does not verify DLEQ on the presented input proofs:
-input-proof DLEQ exists to let an offline party verify ecash
-without contacting the mint, but here the server swaps the token
-immediately and the swap itself proves the inputs were validly
-signed and unspent, so an input-proof DLEQ check would add nothing.
-It is also frequently stripped from `cashuB` tokens, so requiring it
-would needlessly reject valid tokens.
-
-## Amount and Fee Determinism {#security-fees}
-
-Where the swap fee is large relative to `amount` the
-charge remains satisfiable but uneconomic; servers SHOULD price
-`amount` well above the swap fee of the mints they accept.
-
 ## Keyset Rotation and Expiry
 
 A `final_expiry` boundary {{NUT-02}} can fall between the last
-structural check (verification step 9) and the swap (step 10): a
+structural check (verification step 8) and the swap (step 9): a
 token that
 passes verification is not guaranteed to swap, because the mint
 enforces keyset retirement and `final_expiry` at swap time. Servers
 MUST treat a swap rejected for keyset retirement or passed
 `final_expiry` as `payment-expired`, distinct from the
 double-spend and disallowed-mint cases that are
-`verification-failed`. A keyset that is merely inactive — no longer
+`verification-failed`. A keyset that is merely inactive (no longer
 the mint's current signing keyset but not yet retired or past
-`final_expiry` — remains valid for redemption; the server MUST NOT
+`final_expiry`) remains valid for redemption; the server MUST NOT
 reject a proof for keyset inactivity alone, only for actual
 retirement or expiry. Output proofs are blinded against the unit's
 ACTIVE keyset (see {{settlement}}), so the server holds spendable
@@ -968,24 +905,17 @@ The server trusts the mints it lists in the payment request: a
 listed mint custodies the value the server redeems and could, in
 principle, refuse to honor a swap or rotate its keyset early.
 Membership is decided by canonicalized mint URL (verification
-step 6). Two mint URLs are equal when these transformations —
-exhaustive; no further {{RFC3986}} normalization (such as
-percent-encoding case changes) is applied — yield identical
-strings: lowercase the scheme and host (comparing an
+step 5). Two mint URLs are equal when these transformations
+yield identical strings (the list is exhaustive; no further
+{{RFC3986}} normalization, such as percent-encoding case changes,
+is applied): lowercase the scheme and host (comparing an
 internationalized host in its punycode A-label form), drop a
 default port (443 for `https`, 80 for `http`), and strip all
 trailing slashes (as token serialization does, {{NUT-00}}); the
 path and query are otherwise case-sensitive and preserved
 verbatim. A mint URL containing userinfo (`user@host`) MUST be
-rejected outright. URL equality alone does not defend against a
-DNS or TLS takeover of a listed mint's domain, because the
-`pubkey` of `GET /v1/info` {{NUT-06}}
-would be fetched over the same channel an attacker controls and is
-public in any case. The durable control is operator diligence:
-choose the mint set deliberately, and where takeover resistance
-matters, pin each accepted mint's identity (for example its public
-key) out of band rather than trusting it on first contact. Clients
-likewise rely on the listed mints to honor the tokens they hold.
+rejected outright. Clients likewise rely on the listed mints to
+honor the tokens they hold.
 
 ## Privacy
 
@@ -997,7 +927,7 @@ presents only an exact-amount token, neither the server nor the
 mint observes the remainder or its secrets, and the server learns
 that one charge was paid without learning the size of the holder's
 remaining balance. The server still observes that a redemption
-occurred — the blind signatures hide the link to issuance, not the
+occurred: the blind signatures hide the link to issuance, not the
 redemption itself. The mint, however, can still correlate the
 holder's pre-payment split with the redemption moments later by
 amount and timing; clients that need to avoid that SHOULD hold
@@ -1024,16 +954,13 @@ credential-verification attempts per {{I-D.httpauth-payment}}.
 All communication MUST use TLS per {{I-D.httpauth-payment}}.
 A Cashu token is a bearer credential: any party that observes it
 in transit before it is redeemed can redeem it itself. Challenge
-binding does not prevent this — it binds the credential to a
-challenge, not the token to a holder — so an interceptor at any
+binding does not prevent this (it binds the credential to a
+challenge, not the token to a holder), so an interceptor at any
 TLS-terminating hop (a reverse proxy, a compromised gateway) sees
 the plaintext token and can redeem it directly. Credentials MUST
 only be transmitted over HTTPS, and servers SHOULD redeem a
 presented token promptly; TLS and prompt redemption shrink the
-exposure window rather than close it. The structural fix is to lock the
-token to the server's key (P2PK) so an intercepted token is
-unspendable by anyone else; that is this method's forward path (see
-{{spending-conditions}}), out of scope for the bearer profile.
+exposure window rather than close it.
 
 # IANA Considerations
 
@@ -1108,7 +1035,7 @@ Content-Type: application/json
 ~~~
 
 Decoded credential (keys in JCS order, as the wire bytes carry
-them — see {{encoding}}):
+them; see {{encoding}}):
 
 ~~~json
 {
