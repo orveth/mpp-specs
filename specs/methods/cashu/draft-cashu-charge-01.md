@@ -580,7 +580,7 @@ token (see {{security-replay}}).
 
 ## Short Keyset Identifiers {#short-keyset}
 
-When a presented proof uses a short (version-`00`) keyset id, the
+When a presented proof uses a short (version-`01`) keyset id, the
 server MUST resolve it to the full keyset against the mint's
 published keyset list ({{NUT-02}}); resolution is required to
 compute the swap fee ({{fees}}) and construct correct swap outputs.
