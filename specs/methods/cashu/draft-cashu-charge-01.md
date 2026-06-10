@@ -245,16 +245,16 @@ The "charge" intent represents a one-time payment gating access to
 a resource. The server advertises a Cashu payment request
 ({{NUT-18}}) naming an exact amount and unit per request. As the
 credential, the client presents a Cashu token whose value, after
-the swap fee the mint will deduct, settles to exactly that amount.
+the swap fee the mint will deduct, covers that amount.
 The server verifies the token and redeems it by swapping
 ({{NUT-03}}) it at the issuing mint; a successful swap both proves
 the token unspent and transfers its value to the server.
 
-The "cashu" charge is exact-amount: the server redeems the whole
-token and makes no change, so the holder pre-funds the swap fee and
-the presented value is `amount + swap_fee` (see {{fees}}). A holder
-of a larger token splits it locally first (see {{settlement}});
-the remainder is never seen by the server.
+The server redeems the whole token and makes no change: the holder
+pre-funds the swap fee, presenting a value of at least
+`amount + swap_fee`, and any excess is retained by the server (see
+{{fees}}). A holder of a larger token splits it locally first (see
+{{settlement}}); the remainder is never seen by the server.
 
 ## Fees {#fees}
 
@@ -268,16 +268,20 @@ the sum runs over proofs, not distinct keysets. The fee is
 deterministic from the presented proofs, so both holder and server
 compute the same value before the token is presented.
 
-Because the charge is exact-amount with no change, the holder
-pre-funds the fee: the presented token's total value MUST equal
-`amount + swap_fee` (for a zero-fee keyset, `presented == amount`).
-The server's exact-value check ({{verification}}, step 8) recomputes
-`swap_fee` from the presented proofs and never trusts a
-client-supplied value.
+Because the server makes no change, the holder pre-funds the fee:
+the presented token's total value MUST be at least
+`amount + swap_fee` (for a zero-fee keyset, at least `amount`).
+Value beyond that is accepted and retained by the server, so a
+client SHOULD present the exact total. The server's value check
+({{verification}}, step 8) recomputes `swap_fee` from the presented
+proofs and never trusts a client-supplied value.
 
-Selecting proofs to total `amount + swap_fee` has a mild fixpoint (a
-proof added to cover the fee can raise the fee); standard fee-aware
-coin selection resolves it.
+Selecting proofs to total exactly `amount + swap_fee` has a mild
+fixpoint (a proof added to cover the fee can raise the fee).
+Fee-aware coin selection resolves it when the client swaps for
+fresh denominations; a client spending already-held proofs MAY be
+unable to land on the exact total, and then overpays by the
+smallest margin its proofs allow.
 
 # Encoding Conventions {#encoding}
 
@@ -303,7 +307,7 @@ auth-param in `WWW-Authenticate`, the credential in
 `Payment-Receipt`.
 
 The Cashu payment request (`methodDetails.paymentRequest`) and the Cashu
-token (`payload.cashu_token`) are opaque string values within the
+token (`payload.token`) are opaque string values within the
 JCS-canonical `request` object; their own internal encoding
 ({{NUT-18}}, {{NUT-00}}) is never canonicalized; JCS conformance is
 a property of the enclosing object only.
@@ -413,9 +417,9 @@ source
 
 payload
 : REQUIRED. A JSON object containing the Cashu-specific credential
-  fields. The single required field is `cashu_token`: the Cashu
+  fields. The single required field is `token`: the Cashu
   token ({{NUT-00}}, a `cashuB...` string) whose value, net of the
-  swap fee, settles to exactly the requested amount (see
+  swap fee, covers the requested amount (see
   {{fees}}).
 
 Example (decoded):
@@ -432,7 +436,7 @@ Example (decoded):
   },
   "source": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
   "payload": {
-    "cashu_token": "cashuBpGF0gaJhaUgA..."
+    "token": "cashuBpGF0gaJhaUgA..."
   }
 }
 ~~~
@@ -453,7 +457,7 @@ echoes them too:
     "expires": "2026-03-15T12:05:00Z"
   },
   "payload": {
-    "cashu_token": "cashuBpGF0gaJhaUgA..."
+    "token": "cashuBpGF0gaJhaUgA..."
   }
 }
 ~~~
@@ -463,7 +467,7 @@ echoes them too:
 Upon receiving a request with a credential, the server MUST:
 
 1. Decode the base64url credential and parse the JSON.
-2. Verify that `payload.cashu_token` is present, is a string, and
+2. Verify that `payload.token` is present, is a string, and
    decodes as a Cashu token ({{NUT-00}}). The token MUST be a
    `cashuB...` (TokenV4) serialization carrying at least one
    proof; a `cashuA...` (TokenV3) string MUST be rejected, as MUST
@@ -507,8 +511,10 @@ Upon receiving a request with a credential, the server MUST:
    `verification-failed`.
 8. Compute `expected_swap_fee` over the resolved keyset(s) of the
    presented proofs ({{fees}}) and verify the token's total value
-   equals `amount + expected_swap_fee` EXACTLY. A token worth more
-   OR less MUST be rejected; the server makes no change.
+   is at least `amount + expected_swap_fee`. A token worth less
+   MUST be rejected as `payment-insufficient` ({{errors}}); value
+   above the requirement is accepted and retained. The server
+   makes no change either way.
 9. Swap ({{NUT-03}}) the whole token at the configured URL of the
    mint-set entry matched in step 5 (see {{settlement}}). A
    successful swap is the redemption step and is the authoritative
@@ -581,9 +587,8 @@ compute the swap fee ({{fees}}) and construct correct swap outputs.
 A short id that resolves to no keyset, or is ambiguous across the
 mint's keysets, MUST be rejected as `verification-failed`. A
 failure to fetch the keyset list at all (a network error reaching
-the mint) is distinct: that is a `mint-unavailable` (HTTP 503)
-condition with the token NOT consumed (see {{errors}}), not a
-`verification-failed`.
+the mint) is distinct: the server answers HTTP 503 with the token
+NOT consumed (see {{errors}}), not `verification-failed`.
 
 # Settlement Procedure {#settlement}
 
@@ -591,7 +596,7 @@ Settlement is the mint swap ({{NUT-03}}) of the presented token.
 The server swaps the whole token for fresh proofs it controls;
 holding those proofs is settlement. The mint deducts the swap fee
 ({{fees}}) from the inputs, so the server's output proofs sum to
-exactly `amount`. The server's outputs are blinded against the
+at least `amount`. The server's outputs are blinded against the
 mint's currently ACTIVE keyset for the unit ({{NUT-02}}), which MAY
 differ from the keyset(s) that signed the input proofs. Cashu
 settlement is final once the swap succeeds: the input proofs are
@@ -617,10 +622,12 @@ reconstruction requirement above makes always possible (if the
 mint returns signatures, the original swap succeeded and the
 payment is complete), or check the input proofs' spent state
 ({{NUT-07}}). Until resolved, the server answers
-`mint-unavailable` ({{errors}}).
+HTTP 503 ({{errors}}).
 
-The client presents a token worth exactly `amount + swap_fee`. If
-it does not already hold matching denominations, it first swaps
+The client presents a token worth `amount + swap_fee` (value
+beyond that is not returned, so there is no reason to present
+more). If it does not already hold matching denominations, it
+first swaps
 ({{NUT-03}}) at the mint to produce them; the remainder of that
 local split stays with the client, and neither the mint nor the
 server learns the remainder's secrets. The split happens before
@@ -634,7 +641,7 @@ been redeemed MUST NOT be accepted again, even if resource delivery
 subsequently fails. A server using stored challenges records
 consumption only upon, and atomically with, swap success; a
 challenge whose swap never succeeded remains presentable
-(`mint-unavailable`, {{errors}}). Once the swap succeeds the
+(HTTP 503, {{errors}}). Once the swap succeeds the
 payment is complete:
 the server MUST NOT respond with a payment-failure status (402) or
 issue a fresh challenge for a condition detected after a successful
@@ -681,7 +688,7 @@ challengeId
 
 reference
 : REQUIRED. A SHA-256 hash, as a lowercase hex string, of the
-  exact `cashu_token` credential string received from the client
+  exact `token` credential string received from the client
   (the `cashuB...` string as presented, not a re-encoding). Serves
   as a stable, shareable settlement identifier. The token string
   itself MUST NOT be used here: although a redeemed token is spent
@@ -733,16 +740,14 @@ The 402 problem types below are scoped to payment-verification
 failures.
 
 Payment-verification failures surface as the framework's
-registered problem types where their semantics match; this method
-defines the cashu-specific causes that map to each. Two
-genuinely method-specific conditions are defined under the
-`cashu/` namespace (`amount-mismatch`, `mint-unavailable`):
+registered problem types; this method defines no problem types of
+its own, only the cashu-specific causes that map to each:
 
 https://paymentauth.org/problems/malformed-credential
 : HTTP 402. The credential could not be decoded, the JSON
   could not be parsed, required fields (`challenge`, `payload`,
-  `payload.cashu_token`) are absent or have the wrong type,
-  `cashu_token` does not decode as a Cashu token, the token is a
+  `payload.token`) are absent or have the wrong type,
+  `token` does not decode as a Cashu token, the token is a
   `cashuA...` (TokenV3) serialization, the token carries zero
   proofs, or it exceeds the server's proof-count bound
   ({{security-dos}}). A fresh challenge
@@ -770,13 +775,13 @@ https://paymentauth.org/problems/payment-expired
   token means its keyset has expired and the token SHOULD be
   abandoned.
 
-https://paymentauth.org/problems/cashu/amount-mismatch
-: HTTP 402. The token's total value does not equal
-  `amount + swap_fee` (see {{fees}}), whether over- or
-  under-funded; the server makes no change. A fresh challenge MUST be included in
-  `WWW-Authenticate`. This method-specific type covers both
-  directions; the framework's `payment-insufficient` names only
-  underpayment and is not used by this method.
+https://paymentauth.org/problems/payment-insufficient
+: HTTP 402. The token's total value is less than
+  `amount + swap_fee` (see {{fees}}); the server makes no change
+  and the token is not redeemed. A fresh challenge MUST be
+  included in `WWW-Authenticate`. There is no over-payment
+  counterpart: value above the requirement is accepted and
+  retained ({{fees}}).
 
 https://paymentauth.org/problems/verification-failed
 : HTTP 402. The token failed a non-amount, non-expiry verification
@@ -789,17 +794,17 @@ https://paymentauth.org/problems/verification-failed
   retirement or expiry (verification step 9). A fresh challenge
   MUST be included in `WWW-Authenticate`.
 
-https://paymentauth.org/problems/cashu/mint-unavailable
-: HTTP 503. The mint could not be reached, or the swap was sent
-  but its outcome is unknown: an infrastructure failure, not a
-  payment-verification outcome. The server SHOULD include a
-  `Retry-After` header. If the swap request was never transmitted
-  (DNS, connect, or TLS failure), the token is NOT consumed and
-  the client MAY retry the same token. If the swap was transmitted
-  but its result was not received, consumption is unknown: the
-  server MUST NOT claim the token unconsumed and MUST resolve the
-  outcome before acting further on the same challenge (see
-  {{settlement}}).
+Mint unreachability is an infrastructure failure, not a
+payment-verification outcome, and carries no problem type: when
+the mint cannot be reached, or a swap was sent but its outcome is
+unknown, the server MUST answer HTTP 503 (Service Unavailable)
+and SHOULD include a `Retry-After` header. If the swap request
+was never transmitted (DNS, connect, or TLS failure), the token
+is NOT consumed and the client MAY retry the same token. If the
+swap was transmitted but its result was not received, consumption
+is unknown: the server MUST NOT claim the token unconsumed and
+MUST resolve the outcome before acting further on the same
+challenge (see {{settlement}}).
 
 A token whose mint is reachable but is not in the payment
 request's mint set, or whose unit is otherwise disallowed by
@@ -813,10 +818,10 @@ Example error response body:
 
 ~~~json
 {
-  "type": "https://paymentauth.org/problems/cashu/amount-mismatch",
-  "title": "Amount Mismatch",
+  "type": "https://paymentauth.org/problems/payment-insufficient",
+  "title": "Payment Insufficient",
   "status": 402,
-  "detail": "Presented token value does not equal amount plus swap fee"
+  "detail": "Presented token value is less than amount plus swap fee"
 }
 ~~~
 
@@ -921,9 +926,9 @@ honor the tokens they hold.
 
 Cashu tokens are bearer instruments carrying no payer identity,
 and the mint's blind signatures {{NUT-00}} unlink a token's
-redemption from its issuance. The exact-amount model adds to this:
-because the holder splits its token locally before presenting and
-presents only an exact-amount token, neither the server nor the
+redemption from its issuance. The local-split model adds to this:
+because the holder splits its token locally and presents only what
+the charge requires, neither the server nor the
 mint observes the remainder or its secrets, and the server learns
 that one charge was paid without learning the size of the holder's
 remaining balance. The server still observes that a redemption
@@ -984,7 +989,7 @@ the "HTTP Payment Intents" registry established by
 
 | Intent | Applicable Methods | Description | Reference |
 |--------|-------------------|-------------|-----------|
-| `charge` | `cashu` | One-time exact-amount Cashu token payment gating access to a resource | This document |
+| `charge` | `cashu` | One-time Cashu token payment gating access to a resource | This document |
 
 --- back
 
@@ -1024,7 +1029,7 @@ Decoded `request`:
 ~~~http
 GET /weather HTTP/1.1
 Host: api.example.com
-Authorization: Payment eyJjaGFsbGVuZ2UiOnsiZXhwaXJlcyI6IjIwMjYtMDMtMTVUMTI6MDU6MDBaIiwiaWQiOiJrTTl4UHFXdlQybkpySHNZNGFEZkViIiwiaW50ZW50IjoiY2hhcmdlIiwibWV0aG9kIjoiY2FzaHUiLCJyZWFsbSI6ImFwaS5leGFtcGxlLmNvbSIsInJlcXVlc3QiOiJleUouLi4ifSwicGF5bG9hZCI6eyJjYXNodV90b2tlbiI6ImNhc2h1QnBHRjBnYUpoYVVnQS4uLiJ9LCJzb3VyY2UiOiJkaWQ6a2V5Ono2TWtoYVhnQlpEdm90RGtMNTI1N2ZhaXp0aUdpQzJRdEtMR3Bibm5FR3RhMmRvSyJ9
+Authorization: Payment eyJjaGFsbGVuZ2UiOnsiZXhwaXJlcyI6IjIwMjYtMDMtMTVUMTI6MDU6MDBaIiwiaWQiOiJrTTl4UHFXdlQybkpySHNZNGFEZkViIiwiaW50ZW50IjoiY2hhcmdlIiwibWV0aG9kIjoiY2FzaHUiLCJyZWFsbSI6ImFwaS5leGFtcGxlLmNvbSIsInJlcXVlc3QiOiJleUouLi4ifSwicGF5bG9hZCI6eyJ0b2tlbiI6ImNhc2h1QnBHRjBnYUpoYVVnQS4uLiJ9LCJzb3VyY2UiOiJkaWQ6a2V5Ono2TWtoYVhnQlpEdm90RGtMNTI1N2ZhaXp0aUdpQzJRdEtMR3Bibm5FR3RhMmRvSyJ9
 
 HTTP/1.1 200 OK
 Payment-Receipt: eyJjaGFsbGVuZ2VJZCI6ImtNOXhQcVd2VDJuSnJIc1k0YURmRWIiLCJleHRlcm5hbElkIjoib3JkZXJfMTIzNDUiLCJtZXRob2QiOiJjYXNodSIsInJlZmVyZW5jZSI6IjliNzFkMjI0YmQ2MmYzNzg1ZDk2ZDQ2YWQzZWEzZDczMzE5YmZiYzI4OTBjYWFkYWUyZGZmNzI1MTk2NzNjYTciLCJzdGF0dXMiOiJzdWNjZXNzIiwidGltZXN0YW1wIjoiMjAyNi0wMy0xMFQyMTowMDowMFoifQ
@@ -1048,7 +1053,7 @@ them; see {{encoding}}):
     "request": "eyJ..."
   },
   "payload": {
-    "cashu_token": "cashuBpGF0gaJhaUgA..."
+    "token": "cashuBpGF0gaJhaUgA..."
   },
   "source": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK"
 }
@@ -1072,7 +1077,7 @@ Decoded receipt:
 The same exchange with a service-defined unit: only the `currency`
 and the unit encoded in the payment request differ. Here the mint's
 keyset for the unit is fee-free (`input_fee_ppk = 0`, the operator's
-choice), so the presented token is worth exactly the requested
+choice), so the presented token is worth the requested
 `amount`; against a fee-bearing keyset it would be `amount + swap_fee`
 (see {{fees}}). The token is verified and redeemed identically; any
 backing or expiry the unit carries is enforced by the mint at swap
