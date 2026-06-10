@@ -189,7 +189,7 @@ settlement procedures for the "cashu" payment method.
 # Terminology
 
 Cashu Token
-: A bearer ecash token (a `cashuB...` string, the NUT-00
+: An ecash token (a `cashuB...` string, the NUT-00
   TokenV4 serialization) encoding one or more proofs issued by a
   single mint under a single unit, the mint's URL, and that unit.
   The authoritative value carried by the credential.
@@ -346,9 +346,9 @@ request JSON. The Cashu payment request
 all payment parameters, including the set of mints whose tokens
 the server accepts for this challenge. Clients MUST decode and
 verify the payment request independently before presenting, and
-MUST reject challenges where `amount`, `currency`, or the
-challenge `id` do not match the values encoded in the payment
-request, or whose single-use flag is not true.
+MUST reject challenges where `amount` or `currency` do not match
+the values encoded in the payment request, or whose single-use
+flag is not true.
 
 paymentRequest
 : REQUIRED. The Cashu payment request string ({{NUT-18}}, a
@@ -371,9 +371,10 @@ paymentRequest
   then locks the presented proofs to it, and the server supplies
   the witness at the swap ({{verification}}, step 8). The
   single-use flag MUST be true: a challenge identifies one
-  payment. The payment id (`i`) MUST be present and equal the
-  challenge `id`, so one identifier names the payment everywhere
-  it appears.
+  payment. The payment id (`i`) SHOULD be
+  omitted: the challenge `id` identifies the payment, and under
+  stateless binding the `id` is computed over the `request` bytes,
+  so no embedded value can equal it.
 
 # Credential Schema
 
@@ -394,9 +395,9 @@ source
 : OPTIONAL. A payer identifier string, as defined by
   {{I-D.httpauth-payment}}. The RECOMMENDED format
   is a Decentralized Identifier (DID) per
-  {{W3C-DID}}. Cashu tokens are bearer instruments and carry no
-  payer identity; implementations MAY omit this field, and
-  servers MUST NOT require it.
+  {{W3C-DID}}. Cashu tokens carry no payer identity;
+  implementations MAY omit this field, and servers MUST NOT
+  require it.
 
 payload
 : REQUIRED. A JSON object containing the Cashu-specific credential
@@ -856,9 +857,9 @@ tokens they hold.
 
 ## Privacy
 
-Cashu tokens are bearer instruments carrying no payer identity,
-and the mint's blind signatures {{NUT-00}} unlink a token's
-redemption from its issuance. The local-split model adds to this:
+Cashu tokens carry no payer identity, and the mint's blind
+signatures {{NUT-00}} unlink a token's redemption from its
+issuance. The local-split model adds to this:
 because the holder splits its token locally and presents only what
 the charge requires, neither the server nor the
 mint observes the remainder or its secrets, and the server learns
@@ -909,7 +910,7 @@ the "HTTP Payment Methods" registry established by
 
 | Method Identifier | Description | Reference |
 |-------------------|-------------|-----------|
-| `cashu` | Cashu (Chaumian ecash) bearer token payment | This document |
+| `cashu` | Cashu (Chaumian ecash) token payment | This document |
 
 Contact: TODO (<todo@example.com>)
 
