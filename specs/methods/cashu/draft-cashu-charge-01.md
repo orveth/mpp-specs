@@ -866,7 +866,9 @@ occurred: the blind signatures hide the link to issuance, not the
 redemption itself. The mint, however, can still correlate the
 holder's pre-payment split with the redemption moments later by
 amount and timing; clients that need to avoid that SHOULD hold
-pre-made exact-value tokens. The stateless `id`-HMAC key is a
+pre-made exact-value tokens. Implementations MUST NOT log token
+secrets, and MUST use the token hash, not the token, as a receipt
+reference (see {{receipt}}). The stateless `id`-HMAC key is a
 server secret; its compromise lets an attacker forge challenges and
 defeat challenge binding.
 
