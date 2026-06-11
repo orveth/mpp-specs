@@ -866,21 +866,18 @@ occurred: the blind signatures hide the link to issuance, not the
 redemption itself. The mint, however, can still correlate the
 holder's pre-payment split with the redemption moments later by
 amount and timing; clients that need to avoid that SHOULD hold
-pre-made exact-value tokens.
-Implementations MUST NOT log token secrets, and
-MUST use the token hash, not the token, as a receipt reference (see
-{{receipt}}). The stateless `id`-HMAC key is a server secret and
-MUST NOT be logged or shared; its compromise lets an attacker forge
-challenges and defeat challenge binding.
+pre-made exact-value tokens. The stateless `id`-HMAC key is a
+server secret; its compromise lets an attacker forge challenges and
+defeat challenge binding.
 
 ## Denial of Service {#security-dos}
 
 A token carrying a very large number of proofs inflates both
 verification cost and the swap fee. Servers SHOULD bound the number
 of proofs they accept in a single token; this bound is a
-server-internal limit and is not advertised in the challenge (which
-carries no proof-count field), so a client learns of it only when
-an over-large token is rejected as `malformed-credential`.
+server-internal limit and is not advertised in the challenge, so a
+client learns of it only when an over-large token is rejected as
+`malformed-credential`.
 Servers SHOULD also rate-limit challenge issuance and
 credential-verification attempts per {{I-D.httpauth-payment}}.
 
