@@ -648,10 +648,7 @@ reference
 : REQUIRED. A SHA-256 hash, as a lowercase hex string, of the
   exact `token` credential string received from the client
   (the `cashuB...` string as presented, not a re-encoding). Serves
-  as a stable, shareable settlement identifier. The token string
-  itself MUST NOT be used here: although a redeemed token is spent
-  and cannot be replayed, the proof secrets remain sensitive and
-  MUST NOT be exposed in logs, analytics, or shared receipts.
+  as a stable, shareable settlement identifier.
 
 status
 : REQUIRED. The string "success".
